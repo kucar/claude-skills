@@ -7,7 +7,7 @@ Create the file ~/.claude/skills/multi-agent-session/SKILL.md with EXACTLY the c
 -----BEGIN-----
 ---
 name: multi-agent-session
-description: Use when the user says "multi agent session" (or "multi-agent session"), optionally followed by a model (opus, sonnet, haiku or a full model ID). Makes this Claude the orchestrator of 3 worker agents in Herdr panes (default Opus 5.5); starts, resets or resumes them, and can add extra workers. Requires HERDR_ENV=1.
+description: Use when the user says "multi agent session" (or "multi-agent session"), optionally followed by a model (opus, sonnet, haiku or a full model ID). Makes this Claude the orchestrator of 3 worker agents in Herdr panes (default: the latest Opus); starts, resets or resumes them, and can add extra workers. Requires HERDR_ENV=1.
 ---
 
 # Multi-Agent Session
@@ -17,7 +17,7 @@ You are the **orchestrator** (the brain). The workers do the work. Use the `herd
 ## Names (one orchestrator = one pane)
 
 ```bash
-P=${HERDR_PANE_ID/:/}                      # w8:p2 -> w8p2 (pane IDs carry the workspace, so unique)
+P=$(echo "${HERDR_PANE_ID/:/}" | tr A-Z a-z)   # w8:pE -> w8pe (IDs carry the workspace, so unique; agent names must be lowercase)
 H=~/.claude/handoffs/$(basename "$PWD")    # never inside the repo
 ```
 
@@ -27,7 +27,7 @@ H=~/.claude/handoffs/$(basename "$PWD")    # never inside the repo
 
 ## Worker model `M`
 
-- Taken from the trigger: `multi agent session sonnet` → `M=claude-sonnet-5-5`. Short names: `opus` → `claude-opus-5-5`, `sonnet` → `claude-sonnet-5-5`, `haiku` → `claude-haiku-5-5`. A full model ID is used as is. Nothing named → `M=claude-opus-5-5`.
+- Taken from the trigger: `multi agent session sonnet` → `M=sonnet`. Use the Claude Code aliases `opus`, `sonnet`, `haiku` as is (they always pick the latest model). A full model ID is used as is. Nothing named → `M=opus`.
 - On Resume, `M` comes from the handoff file. If the user names a different model at Resume/Reset, say the workers already run on the old one; a new model needs a new session (close the workers, then Start).
 - All workers use `M`. Never start a stronger model than `M` without asking the user.
 
@@ -103,12 +103,12 @@ herdr agent start "$P-w3" --kind claude --pane "$P3" -- --model "$M"
 ## Answering workers' questions as the user
 
 - Superpowers / grilling / design questions: answer on the user's behalf like a human owner would — short, decisive, with a reason. Not robotic.
-- Never change a project's direction (channel scope, product goals) on your own — ask the user.
+- Never change a project's direction (scope, product goals) on your own — ask the user.
 - Report every answer you gave in ASD-STE100 simple English, this exact shape:
 
 ```
-w2 asked: Should the trim pad be 0.3s?
-Answer: Yes. It stays below the 0.60s limit.
+w2 asked: Should the retry limit be 3?
+Answer: Yes. It stays below the 10s timeout.
 ```
 
 ## Permission prompts (worker is `blocked`)
