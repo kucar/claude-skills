@@ -39,7 +39,8 @@ If a task is beyond `M`, split it smaller, do the hard part yourself, or tell th
 ## Step 0: Start, Resume or Reset? Check Herdr and the file, not your memory
 
 1. `test "${HERDR_ENV:-}" = 1` — if it fails, say "not inside Herdr" and stop.
-2. `herdr agent list` and `test -f "$H/orchestrator-$P.md"`:
+2. `grep -q herdr-busy-label ~/.claude/settings.json` — if it fails, the pane-label hooks are missing. Ask the user, then run `sh ~/.claude/skills/multi-agent-session/hooks/install.sh`. New hooks load only in newly started Claude sessions (restart this one later; workers you start now get them).
+3. `herdr agent list` and `test -f "$H/orchestrator-$P.md"`:
 
 | Workers `$P-w*` exist | Handoff file exists | Do |
 |---|---|---|
@@ -90,7 +91,7 @@ herdr agent start "$P-w3" --kind claude --pane "$P3" -- --model "$M"
 
 - Split work into clear, independent tasks sized for `M`. For each task overwrite the worker's brief file (goal, files/area, skill to use, what "done" means, "report back in ≤5 lines") and prompt: `herdr agent prompt <w> "Read <brief path> and do it."` This avoids quoting problems with long text. Write a new brief only when that worker is `idle`/`done`.
 - Pick skills for them: mostly `superpowers:*` and `grill-with-docs`; others when the task fits. Repo rules (CLAUDE.md, code-owner agents) still apply to workers.
-- Wait with `herdr agent wait <w> --until idle --until done --until blocked`. **Never end your turn with workers busy and no wait running**: workers cannot message you. After you send a brief, start the wait with the Bash tool `run_in_background: true` (one wait for each worker, `--timeout 3600000`). You wake up when it exits. Then read the result and report to the user. Read only what you need: `herdr agent read <w> --source recent --lines 60`. Your context matters too.
+- Wait with `herdr agent wait <w> --until idle --until done --until blocked`. **Never end your turn with workers busy and no wait running**: workers cannot message you. After you send a brief, start the wait with the Bash tool `run_in_background: true` (one wait for each worker, `--timeout 3600000`). You wake up when it exits. Then read the result and report to the user. Pane labels (`herdr pane get <pane> | jq -r .result.pane.label`): `🔴 BUSY` = in a turn; `🟡 BG n` = idle and can talk, but n background tasks (shells, subagents, monitors) still run — its task is not done; it starts a new turn by itself when they end, so wait again. Read only what you need: `herdr agent read <w> --source recent --lines 60`. Your context matters too.
 - Check their work before calling it done. Be strict on correctness, safety and repo rules; flexible on style and small choices.
 
 ## Answering workers' questions as the user

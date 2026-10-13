@@ -1,8 +1,9 @@
-Create the file ~/.claude/skills/multi-agent-session/SKILL.md with EXACTLY the content between the BEGIN and END lines below (do not include those two lines). Make the folder if it is missing. If the file already exists, back it up first to ~/.claude/handoffs/multi-agent-session-SKILL.backup.md. Then:
+Create the file ~/.claude/skills/multi-agent-session/SKILL.md with EXACTLY the content between the BEGIN and END lines below (do not include those two lines). Make the folder if it is missing. If the file already exists, back it up first to ~/.claude/handoffs/multi-agent-session-SKILL.backup.md. Also create ~/.claude/skills/multi-agent-session/hooks/herdr-busy-label.sh and ~/.claude/skills/multi-agent-session/hooks/install.sh with EXACTLY the content between their BEGIN and END lines further below. Then:
 1. Check that `herdr` and `jq` are on PATH and that a `herdr` skill exists in ~/.claude/skills (it may be a symlink). Report the result.
 2. Check that the `superpowers` plugin is installed. If it is not, tell me to install it with /plugin from claude-plugins-official. Do not install anything yourself.
 3. Check whether a `grill-with-docs` skill exists. If it does not, just tell me. Do not install it.
-4. Tell me to restart Claude inside a Herdr pane and type "multi agent session" (optionally followed by opus, sonnet or haiku).
+4. Ask me, then run `sh ~/.claude/skills/multi-agent-session/hooks/install.sh` (it adds the Herdr pane-label hooks to ~/.claude/settings.json and keeps a .bak copy). Report the result.
+5. Tell me to restart Claude inside a Herdr pane and type "multi agent session" (optionally followed by opus, sonnet or haiku).
 
 -----BEGIN-----
 ---
@@ -46,7 +47,8 @@ If a task is beyond `M`, split it smaller, do the hard part yourself, or tell th
 ## Step 0: Start, Resume or Reset? Check Herdr and the file, not your memory
 
 1. `test "${HERDR_ENV:-}" = 1` — if it fails, say "not inside Herdr" and stop.
-2. `herdr agent list` and `test -f "$H/orchestrator-$P.md"`:
+2. `grep -q herdr-busy-label ~/.claude/settings.json` — if it fails, the pane-label hooks are missing. Ask the user, then run `sh ~/.claude/skills/multi-agent-session/hooks/install.sh`. New hooks load only in newly started Claude sessions (restart this one later; workers you start now get them).
+3. `herdr agent list` and `test -f "$H/orchestrator-$P.md"`:
 
 | Workers `$P-w*` exist | Handoff file exists | Do |
 |---|---|---|
@@ -97,7 +99,7 @@ herdr agent start "$P-w3" --kind claude --pane "$P3" -- --model "$M"
 
 - Split work into clear, independent tasks sized for `M`. For each task overwrite the worker's brief file (goal, files/area, skill to use, what "done" means, "report back in ≤5 lines") and prompt: `herdr agent prompt <w> "Read <brief path> and do it."` This avoids quoting problems with long text. Write a new brief only when that worker is `idle`/`done`.
 - Pick skills for them: mostly `superpowers:*` and `grill-with-docs`; others when the task fits. Repo rules (CLAUDE.md, code-owner agents) still apply to workers.
-- Wait with `herdr agent wait <w> --until idle --until done --until blocked`. **Never end your turn with workers busy and no wait running**: workers cannot message you. After you send a brief, start the wait with the Bash tool `run_in_background: true` (one wait for each worker, `--timeout 3600000`). You wake up when it exits. Then read the result and report to the user. Read only what you need: `herdr agent read <w> --source recent --lines 60`. Your context matters too.
+- Wait with `herdr agent wait <w> --until idle --until done --until blocked`. **Never end your turn with workers busy and no wait running**: workers cannot message you. After you send a brief, start the wait with the Bash tool `run_in_background: true` (one wait for each worker, `--timeout 3600000`). You wake up when it exits. Then read the result and report to the user. Pane labels (`herdr pane get <pane> | jq -r .result.pane.label`): `🔴 BUSY` = in a turn; `🟡 BG n` = idle and can talk, but n background tasks (shells, subagents, monitors) still run — its task is not done; it starts a new turn by itself when they end, so wait again. Read only what you need: `herdr agent read <w> --source recent --lines 60`. Your context matters too.
 - Check their work before calling it done. Be strict on correctness, safety and repo rules; flexible on style and small choices.
 
 ## Answering workers' questions as the user
@@ -134,3 +136,44 @@ Answer: Yes. It stays below the 10s timeout.
 
 Names and files never clash (pane IDs). The working tree does: if two orchestrators work in the same folder, tell the user to use a git worktree for one of them.
 -----END-----
+
+-----BEGIN herdr-busy-label.sh-----
+#!/bin/sh
+# Herdr pane label for a Claude agent:
+#   🔴 BUSY  - a turn runs (UserPromptSubmit)
+#   🟡 BG n  - turn ended, n background tasks (shells, subagents, monitors) still run
+#   (none)   - idle
+# Claude starts a new turn when a background task ends, so Stop runs again and the label updates.
+# ponytail: overwrites any manual pane name; read+restore the old label if you start naming panes by hand.
+input=$(cat)
+[ "${HERDR_ENV:-}" = 1 ] && [ -n "${HERDR_PANE_ID:-}" ] || exit 0
+case "${1:-}" in
+  busy) herdr pane rename "$HERDR_PANE_ID" "🔴 BUSY" ;;
+  idle)
+    n=$(printf '%s' "$input" | jq '[.background_tasks[]? | select(.status == "running")] | length' 2>/dev/null)
+    if [ "${n:-0}" -gt 0 ]; then herdr pane rename "$HERDR_PANE_ID" "🟡 BG $n"
+    else herdr pane rename "$HERDR_PANE_ID" --clear; fi ;;
+esac >/dev/null 2>&1
+exit 0
+-----END herdr-busy-label.sh-----
+
+-----BEGIN install.sh-----
+#!/bin/sh
+# Adds the Herdr pane-label hooks to ~/.claude/settings.json. Safe to run again.
+set -eu
+S="$HOME/.claude/settings.json"
+H="$(cd "$(dirname "$0")" && pwd)/herdr-busy-label.sh"
+chmod +x "$H"
+mkdir -p "$(dirname "$S")"; [ -f "$S" ] || echo '{}' > "$S"
+cp "$S" "$S.bak"
+tmp=$(mktemp)
+jq --arg h "sh '$H'" '
+  def entry(a): {hooks: [{type: "command", command: ($h + " " + a), timeout: 5}]};
+  def clean: map(select(any(.hooks[]?; .command | test("herdr-busy-label")) | not));
+  .hooks //= {}
+  | .hooks.UserPromptSubmit = ((.hooks.UserPromptSubmit // []) | clean) + [entry("busy")]
+  | .hooks.Stop             = ((.hooks.Stop // []) | clean) + [entry("idle")]
+  | .hooks.StopFailure      = ((.hooks.StopFailure // []) | clean) + [entry("idle")]
+' "$S" > "$tmp" && mv "$tmp" "$S"
+echo "Herdr label hooks installed in $S (backup: $S.bak). Restart Claude sessions to load them."
+-----END install.sh-----

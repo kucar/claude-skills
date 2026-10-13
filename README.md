@@ -16,6 +16,7 @@ Needs: Claude Code, `herdr` + its skill, `jq`, the `superpowers` plugin. `grill-
 git clone https://github.com/kucar/claude-skills.git ~/claude-skills
 mkdir -p ~/.claude/skills
 ln -s ~/claude-skills/multi-agent-session ~/.claude/skills/multi-agent-session
+sh ~/claude-skills/multi-agent-session/hooks/install.sh   # pane labels: 🔴 BUSY / 🟡 BG n (background tasks)
 ```
 
 Update later with `git -C ~/claude-skills pull`.
